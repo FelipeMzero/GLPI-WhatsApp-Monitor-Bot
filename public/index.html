@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GLPI Bot | Command Center</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary: #6366f1;
+            --secondary: #a855f7;
+            --bg: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: radial-gradient(circle at 0% 0%, #1e1b4b 0%, #0f172a 100%);
+            color: #f8fafc;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .glass {
+            background: var(--card-bg);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .glass:hover {
+            border-color: rgba(99, 102, 241, 0.4);
+            transform: translateY(-2px);
+        }
+
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status-online {
+            background: rgba(16, 185, 129, 0.1);
+            color: #10b981;
+            border: 1px solid rgba(16, 185, 129, 0.2);
+        }
+
+        .status-offline {
+            background: rgba(239, 68, 68, 0.1);
+            color: #ef4444;
+            border: 1px solid rgba(239, 68, 68, 0.2);
+        }
+
+        .status-waiting {
+            background: rgba(245, 158, 11, 0.1);
+            color: #f59e0b;
+            border: 1px solid rgba(245, 158, 11, 0.2);
+        }
+
+        .pulse {
+            animation: pulse-animation 2s infinite;
+        }
+
+        @keyframes pulse-animation {
+            0% {
+                box-shadow: 0 0 0 0px rgba(16, 185, 129, 0.4);
+            }
+
+            100% {
+                box-shadow: 0 0 0 10px rgba(16, 185, 129, 0);
+            }
+        }
+
+        #log-container {
+            height: 450px;
+            scroll-behavior: smooth;
+        }
+
+        .log-entry {
+            animation: slideIn 0.3s ease-out forwards;
+            border-left: 2px solid transparent;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .log-info {
+            border-color: #3b82f6;
+            background: rgba(59, 130, 246, 0.05);
+        }
+
+        .log-success {
+            border-color: #10b981;
+            background: rgba(16, 185, 129, 0.05);
+        }
+
+        .log-warning {
+            border-color: #f59e0b;
+            background: rgba(245, 158, 11, 0.05);
+        }
+
+        .log-error {
+            border-color: #ef4444;
+            background: rgba(239, 68, 68, 0.05);
+        }
+
+        .qr-wrapper {
+            background: white;
+            padding: 16px;
+            border-radius: 20px;
+            box-shadow: 0 0 30px rgba(99, 102, 241, 0.3);
+        }
+
+        button {
+            transition: all 0.2s;
+        }
+
+        button:active {
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+
+<body class="p-4 md:p-8">
+    <div class="max-w-7xl mx-auto">
+        <!-- Header -->
+        <header class="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-6">
+            <div class="animate-in">
+                <div class="flex items-center gap-3 mb-1">
+                    <div class="bg-indigo-600 p-2 rounded-xl shadow-lg shadow-indigo-500/20">
+                        <i class="fas fa-robot text-2xl"></i>
+                    </div>
+                    <h1 class="text-3xl font-bold tracking-tight">GLPI <span class="text-indigo-400">Bot</span></h1>
+                </div>
+                <p class="text-slate-400 font-light pr-10">Central de Comando e Monitoramento de Chamados</p>
+            </div>
+
+            <div class="flex items-center gap-4 animate-in" style="animation-delay: 0.1s">
+                <div class="glass px-6 py-4 rounded-2xl flex items-center gap-4">
+                    <div class="text-right">
+                        <div class="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1">Status do
+                            WhatsApp</div>
+                        <div id="bot-status-container" class="status-badge status-offline">
+                            <span id="bot-status-dot" class="w-2 h-2 rounded-full bg-current"></span>
+                            <span id="bot-status-text">Desconectado</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <!-- Sidebar: Connection & Stats -->
+            <div class="lg:col-span-4 space-y-8">
+                <!-- WhatsApp Instance -->
+                <section class="glass p-8 rounded-3xl relative overflow-hidden">
+                    <div class="absolute -right-10 -top-10 text-indigo-500/10 text-9xl">
+                        <i class="fab fa-whatsapp"></i>
+                    </div>
+
+                    <h2 class="text-xl font-semibold mb-8 flex items-center gap-3">
+                        <i class="fas fa-link text-indigo-400"></i> Instância
+                    </h2>
+
+                    <!-- Waiting for QR -->
+                    <div id="qr-section" class="hidden text-center py-4">
+                        <div class="qr-wrapper inline-block mb-6" id="qr-code">
+                            <div
+                                class="w-48 h-48 bg-slate-800 animate-pulse rounded-xl flex items-center justify-center">
+                                <i class="fas fa-qrcode text-slate-700 text-4xl"></i>
+                            </div>
+                        </div>
+                        <p class="text-sm text-slate-400 px-4">Escaneie o código acima usando o WhatsApp no seu celular
+                            para autenticar.</p>
+                    </div>
+
+                    <!-- Bot Ready -->
+                    <div id="connected-section" class="hidden text-center py-8">
+                        <div class="relative inline-block mb-6">
+                            <div
+                                class="w-24 h-24 bg-emerald-500/20 rounded-full flex items-center justify-center border border-emerald-500/30 pulse">
+                                <i class="fas fa-check-circle text-4xl text-emerald-400"></i>
+                            </div>
+                        </div>
+                        <h3 class="text-2xl font-bold text-white mb-2">Conectado</h3>
+                        <p class="text-slate-400 text-sm mb-8">Bot em operação e pronto para enviar alertas.</p>
+
+                        <button onclick="logout()"
+                            class="w-full py-3 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl transition-all border border-red-500/20 font-semibold text-sm flex items-center justify-center gap-2">
+                            <i class="fas fa-sign-out-alt"></i> Desconectat Zap
+                        </button>
+                    </div>
+                </section>
+
+                <!-- Configuration Overview -->
+                <section class="glass p-8 rounded-3xl">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-xl font-semibold flex items-center gap-3">
+                            <i class="fas fa-cog text-slate-400"></i> Configuração
+                        </h2>
+                        <button onclick="openSettings()" class="text-xs text-indigo-400 hover:text-indigo-300 font-semibold px-3 py-1 bg-indigo-500/10 rounded-lg border border-indigo-500/20">
+                            Editar
+                        </button>
+                    </div>
+                    <div class="space-y-4">
+                        <div class="bg-slate-900/50 p-4 rounded-2xl">
+                            <label class="text-[10px] text-slate-500 uppercase font-bold block mb-1">Destino
+                                Ativo</label>
+                            <div id="conf-target" class="text-sm font-semibold text-indigo-300 truncate font-mono">---
+                            </div>
+                        </div>
+                        <div class="bg-slate-900/50 p-4 rounded-2xl">
+                            <label class="text-[10px] text-slate-500 uppercase font-bold block mb-1">Verificação
+                                GLPI</label>
+                            <div id="conf-polling" class="text-sm font-semibold text-blue-300">---</div>
+                        </div>
+                        <div class="bg-slate-900/50 p-4 rounded-2xl">
+                            <label class="text-[10px] text-slate-500 uppercase font-bold block mb-1">Painel Host</label>
+                            <div id="conf-url" class="text-sm text-slate-400 truncate">---</div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Settings Modal -->
+            <div id="settings-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+                <div class="glass w-full max-w-md p-8 rounded-3xl animate-in scale-95 shadow-2xl">
+                    <h3 class="text-2xl font-bold mb-6">Ajustar Configurações</h3>
+                    
+                    <div class="space-y-4">
+                        <div>
+                            <label class="text-[10px] text-slate-500 uppercase font-bold block mb-2">URL do GLPI</label>
+                            <input type="text" id="input-url" class="w-full bg-slate-900 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 transition-all" placeholder="http://ip:porta">
+                        </div>
+                        <div>
+                            <label class="text-[10px] text-slate-500 uppercase font-bold block mb-2">Alvo WhatsApp (Grupo ou Número)</label>
+                            <input type="text" id="input-target" class="w-full bg-slate-900 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 transition-all font-mono" placeholder="TI HRMJ - Off Topic ou 55...">
+                        </div>
+                        <div>
+                            <label class="text-[10px] text-slate-500 uppercase font-bold block mb-2">Intervalo (Segundos)</label>
+                            <input type="number" id="input-polling" class="w-full bg-slate-900 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 transition-all" placeholder="3">
+                        </div>
+                    </div>
+
+                    <div class="flex gap-4 mt-8">
+                        <button onclick="closeSettings()" class="flex-1 py-3 bg-slate-800 hover:bg-slate-700 rounded-xl font-semibold text-sm transition-all border border-white/5">Cancelar</button>
+                        <button onclick="saveSettings()" class="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 rounded-xl font-semibold text-sm transition-all shadow-lg shadow-indigo-500/20">Salvar Alterações</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Content: Real-time Logs -->
+            <div class="lg:col-span-8 flex flex-col h-full">
+                <section class="glass p-8 rounded-3xl flex-grow flex flex-col h-full">
+                    <div class="flex justify-between items-center mb-8">
+                        <h2 class="text-xl font-semibold flex items-center gap-3">
+                            <i class="fas fa-terminal text-emerald-400"></i> Console de Atividade
+                        </h2>
+                        <div class="flex items-center gap-3">
+                            <button onclick="clearLogs()"
+                                class="p-2 hover:bg-slate-800 rounded-lg text-slate-500 transition-colors"
+                                title="Limpar console">
+                                <i class="fas fa-broom"></i>
+                            </button>
+                            <div id="live-indicator"
+                                class="flex items-center gap-2 text-[10px] text-emerald-500 font-bold uppercase tracking-widest bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">
+                                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> AO VIVO
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="log-container"
+                        class="bg-slate-950/80 rounded-2xl p-6 overflow-y-auto font-mono text-sm leading-relaxed border border-white/5 flex-grow">
+                        <div class="text-slate-600 italic mb-2">// Aguardando eventos do sistema...</div>
+                    </div>
+                </section>
+            </div>
+        </div>
+
+        <footer class="mt-12 text-center text-slate-500 text-xs font-light">
+            GLPI Bot System &bull; &copy; 2026 &bull; Desenvolvido por Felipe Monteiro
+        </footer>
+    </div>
+
+    <script>
+        const socket = io();
+        const logContainer = document.getElementById('log-container');
+        const qrSection = document.getElementById('qr-section');
+        const qrCode = document.getElementById('qr-code');
+        const connectedSection = document.getElementById('connected-section');
+        const statusBadge = document.getElementById('bot-status-container');
+        const statusText = document.getElementById('bot-status-text');
+
+        let currentConfig = {};
+
+        socket.on('status', (data) => {
+            currentConfig = data;
+            updateStatus(data.state);
+            document.getElementById('conf-polling').innerText = 'A cada ' + data.polling + ' segundos';
+            document.getElementById('conf-target').innerText = data.target;
+            document.getElementById('conf-url').innerText = data.url;
+        });
+
+        socket.on('qr', (qrData) => {
+            updateStatus('waiting');
+            qrSection.classList.remove('hidden');
+            connectedSection.classList.add('hidden');
+            qrCode.innerHTML = `<img src="${qrData}" alt="QR" class="w-48 h-48 mx-auto" />`;
+            addLog('Novo QR Code gerado pelo sistema.', 'warning');
+        });
+
+        socket.on('ready', () => {
+            updateStatus('online');
+            addLog('Acesso ao WhatsApp estabelecido com sucesso.', 'success');
+        });
+
+        socket.on('disconnected', () => {
+            updateStatus('offline');
+            addLog('WhatsApp foi desconectado.', 'error');
+        });
+
+        socket.on('log', (log) => {
+            addLog(log.message, log.type);
+        });
+
+        function openSettings() {
+            document.getElementById('input-url').value = currentConfig.url || '';
+            document.getElementById('input-target').value = currentConfig.target || '';
+            document.getElementById('input-polling').value = currentConfig.polling || 3;
+            document.getElementById('settings-modal').classList.remove('hidden');
+        }
+
+        function closeSettings() {
+            document.getElementById('settings-modal').classList.add('hidden');
+        }
+
+        function saveSettings() {
+            const data = {
+                GLPI_URL: document.getElementById('input-url').value,
+                WHATSAPP_TARGET: document.getElementById('input-target').value,
+                POLLING_INTERVAL: parseInt(document.getElementById('input-polling').value)
+            };
+            socket.emit('saveSettings', data);
+            closeSettings();
+        }
+
+        function updateStatus(state) {
+            statusBadge.className = 'status-badge';
+            if (state === 'online') {
+                statusBadge.classList.add('status-online');
+                statusText.innerText = 'Operacional';
+                qrSection.classList.add('hidden');
+                connectedSection.classList.remove('hidden');
+            } else if (state === 'waiting') {
+                statusBadge.classList.add('status-waiting');
+                statusText.innerText = 'Aguardando Login';
+                qrSection.classList.remove('hidden');
+                connectedSection.classList.add('hidden');
+            } else {
+                statusBadge.classList.add('status-offline');
+                statusText.innerText = 'Offline';
+            }
+        }
+
+        function addLog(message, type = 'info') {
+            const time = new Date().toLocaleTimeString();
+            const types = {
+                info: 'log-info',
+                success: 'log-success',
+                warning: 'log-warning',
+                error: 'log-error'
+            };
+
+            const div = document.createElement('div');
+            div.className = `log-entry ${types[type] || ''} p-2 rounded-lg mb-2`;
+            div.innerHTML = `<span class="opacity-40 font-bold mr-3 text-[10px]">${time}</span> <span>${message}</span>`;
+            logContainer.appendChild(div);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        function logout() {
+            if (confirm('Deseja realmente desconectar e limpar os dados da instância?')) {
+                socket.emit('logout');
+            }
+        }
+
+        function clearLogs() {
+            logContainer.innerHTML = '<div class="text-slate-600 italic mb-2">// Console limpo.</div>';
+        }
+    </script>
+</body>
+
+</html>
