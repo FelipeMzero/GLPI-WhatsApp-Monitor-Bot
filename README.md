@@ -48,7 +48,7 @@ Acesse **http://localhost:3000** para gerenciar o bot sem editar arquivos:
 ---
 
 ## 👥 Como configurar o Alvo
-- **Para Grupos:** Digite o nome exato (ex: `TI HRMJ - Off Topic`).
+- **Para Grupos:** Digite o nome exato (ex: `grupo`).
 - **Para Números:** Digite o número com 55 (ex: `5592991112233`).
 
 ---
